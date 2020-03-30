@@ -40,7 +40,7 @@ fwrite(isoform.list[isoforms_by_length,list(transcript_id)],
 
 #plot transcript lengths
 isoform.list[,hist(length, breaks = 100, xlim=c(0, +5000),
-	main = "Transcript Lengths in New MH Transcriptome Assembly",
+	main = "Transcript Lengths in New ASW Transcriptome Assembly",
 	xlab = "Transcript Length (bp)")]
 sum(isoform.list$length>500)
 

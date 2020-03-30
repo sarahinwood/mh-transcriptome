@@ -4,15 +4,14 @@ library(ggplot2)
 
 busco_output <- list.files("output/busco",
                            recursive = TRUE,
-                           pattern = ".tsv",
+                           pattern = "short_summary.txt",
                            full.names = TRUE)
-busco_fulltables <- grep("full_table", busco_output, value = TRUE)
 
-busco_results_list <- lapply(busco_fulltables,
+busco_results_list <- lapply(busco_output,
                              readr::read_tsv,
-                             skip=4)
-
-names(busco_results_list) <- gsub(".*full_table_(.+).tsv", "\\1", busco_fulltables)
+                             skip=2)
+##this woill need to change - file no longer named with filter, but a folder a couple steps above
+names(busco_results_list) <- gsub("output/busco/(.+)/run_endopterygota_odb10/full_table.tsv", "\\1", busco_output)
 
 busco_all <- dplyr::bind_rows(busco_results_list, .id = "filename")
 

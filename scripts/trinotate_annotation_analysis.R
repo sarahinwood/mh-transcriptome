@@ -47,8 +47,3 @@ plot.genes.per.taxa <- fread("output/trinotate/genes_per_taxa_edited_for_plot.cs
 ggplot(plot.genes.per.taxa, aes(x=reorder(V7, -V1), y=V1))+
   theme(axis.text.x = element_text(angle = 65, hjust = 1, face = "italic")) +
   geom_col()+xlab("Genera")+ylab("Number of BlastX Annotations")
-
-##actin for qpcr?
-grep_actin_genes <- dplyr::filter(annotation.report, grepl('actin', sprot_Top_BLASTX_hit))
-actin <- dplyr::filter(grep_actin_genes, !grepl('interacting', sprot_Top_BLASTX_hit))
-fwrite(actin, "output/trinotate/blastp_grep_actin.csv")
