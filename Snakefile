@@ -78,7 +78,7 @@ all_samples = sorted(set(sample_key['Sample_name']))
 
 rule target:
     input:
-        expand('output/busco/{filter}/run_endopterygota_odb10/full_table.tsv',
+        expand('output/busco/{filter}/short_summary.specific.hymenoptera_odb10.{filter}.txt',
                 filter=['expression', 'length']),
         'output/busco/short_summaries/busco_figure.png',
         'output/fastqc',
@@ -239,7 +239,7 @@ rule trinotate:
 ##make plot of busco summaries
 rule plot_busco:
     input:
-        ss = expand('output/busco/{filter}/short_summary.specific.endopterygota_odb10.{filter}.txt',
+        ss = expand('output/busco/{filter}/short_summary.specific.hymenoptera_odb10.{filter}.txt',
             filter=['expression', 'length'])
     output:
         busco_plot = 'output/busco/short_summaries/busco_figure.png'
@@ -259,17 +259,15 @@ rule plot_busco:
 ##running on raw Trinity.fasta gives high duplication due to each gene having multiple isoforms
 rule busco:
     input:
-        filtered_fasta = 'output/trinity_filtered_isoforms/isoforms_by_{filter}.fasta',
-        lineage = 'data/endopterygota_odb9'
+        filtered_fasta = 'output/trinity_filtered_isoforms/isoforms_by_{filter}.fasta'
     output:
-        'output/busco/{filter}/run_endopterygota_odb10/full_table.tsv'
+        'output/busco/{filter}/short_summary.specific.hymenoptera_odb10.{filter}.txt'
     log:
         str(pathlib2.Path(resolve_path('output/logs/'),
                             'busco_{filter}.log'))
     params:
         wd = 'output/busco',
-        filtered_fasta = lambda wildcards, input: resolve_path(input.filtered_fasta),
-        lineage = lambda wildcards, input: resolve_path(input.lineage)
+        filtered_fasta = lambda wildcards, input: resolve_path(input.filtered_fasta)
     singularity:
         busco_container
     threads:
@@ -280,9 +278,9 @@ rule busco:
         '--force '
         '--in {params.filtered_fasta} '
         '--out {wildcards.filter} '
-        '--lineage endopterygota_odb10 '
+        '--lineage hymenoptera_odb10 '
         '--cpu {threads} '
-        '--augustus_species tribolium '
+        '--augustus_species nasonia '
         '--mode transcriptome '
         '-f '
         '&> {log} '
