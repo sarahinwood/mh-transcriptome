@@ -1,14 +1,26 @@
 library(data.table)
 library(ggplot2)
+library(dplyr)
 
-trinotate.min.eval <- fread('output/trinotate/sorted/best_annot_per_gene.csv', na.strings = ".")
+trinotate.min.eval <- fread('output/trinotate/sorted/longest_isoform_annots.csv', na.strings = ".")
+##viral hits
+virus_x <- data.table(dplyr::filter(trinotate.min.eval, grepl('Viruses', sprot_Top_BLASTX_hit)))
+virus_p <- data.table(dplyr::filter(trinotate.min.eval, grepl('Viruses', sprot_Top_BLASTP_hit)))
+virus_annots <- full_join(virus_x, virus_p)
+fwrite(virus, "output/trinotate/viral/genes_viral_annots.csv")
 
-blastx.results <- trinotate.min.eval[!is.na(sprot_Top_BLASTX_hit),.(sprot_Top_BLASTX_hit, `#gene_id`)]
-first.blastx.hit <- blastx.results[,tstrsplit(sprot_Top_BLASTX_hit, "`", fixed = TRUE, keep=1), by = `#gene_id`]
-split.first.blastx <- first.blastx.hit[,tstrsplit(V1, "^", fixed=TRUE), by=`#gene_id`]
-genes.per.taxa <- split.first.blastx[,length(unique(`#gene_id`)), by=V7]
-virus_taxa <- dplyr::filter(genes.per.taxa, grepl('Viruses', V7))
-fwrite(virus_taxa, "output/trinotate/viral/genes_per_taxa_viral.csv")
+virus <- data.table(dplyr::filter(virus, !grepl('transposon', sprot_Top_BLASTX_hit)))
+##viral taxa
+virus$sprot_Top_BLASTX_hit <- tstrsplit(virus$sprot_Top_BLASTX_hit, "`", keep=1, fixed=TRUE)
+split.first.blastx <- virus[,tstrsplit(sprot_Top_BLASTX_hit, "^", fixed=TRUE), by=`#gene_id`]
+genes.per.viral.taxa <- split.first.blastx[,length(unique(`#gene_id`)), by=V7]
+##substitute to keep last string which should be genus
+#start of string, 0 or more of any character, 
+genes.per.viral.taxa$viral_genera <- data.table(gsub("^.*; ", "", genes.per.viral.taxa$V7))
+##have some cases where last string wasn't genus - fix these
+genes.per.viral.taxa$viral_genera <- sub("Murine leukemia virus", "Gammaretrovirus", genes.per.viral.taxa$viral_genera)
+##would be good to also include whether DNA or RNA virus - search manually
+fwrite(genes.per.viral.taxa, "output/trinotate/viral/genes_per_taxa_viral.csv")
 
 ##plot viral taxa annots
 plot.viral.taxa <- fread("output/trinotate/viral/genes_per_taxa_viral_edited_for_plot.csv")
@@ -17,9 +29,6 @@ ggplot(plot.viral.taxa, aes(x=reorder(V7, -V1), y=V1))+
   theme(axis.text.x = element_text(angle = 65, hjust = 1, face = "italic")) +
   geom_col()+xlab("Viral Genera")+ylab("Number of BlastX Annotations")
 
-##get list of all viral genes and annots to later pull out viral transcript sequences
-trinotate_virus_annots <- dplyr::filter(trinotate.min.eval, grepl('Viruses', sprot_Top_BLASTX_hit))
-fwrite(trinotate_virus_annots, "output/trinotate/viral/viral_annots.csv")
 ##write list of viral transcript IDs to pull out of fasta file
 viral_transcripts <- trinotate_virus_annots[,2]
 fwrite(list(viral_transcripts), "output/trinotate/viral/viral_transcript_ids.txt")
@@ -27,11 +36,3 @@ fwrite(list(viral_transcripts), "output/trinotate/viral/viral_transcript_ids.txt
 
 ##virus transposon transcripts
 transposon <- dplyr::filter(trinotate_virus_annots, grepl('transposon', sprot_Top_BLASTX_hit))
-
-##unnecessary now?##sort out viral annots
-dedup_virus_annots <- fread("output/trinotate/viral/dedup_viral_annots_trinotate.csv")
-viral_blastx_annots <- dedup_virus_annots[,tstrsplit(sprot_Top_BLASTX_hit, "`", fixed=TRUE, keep=1)]
-viral_blastx_table <- viral_blastx_annots[,tstrsplit(V1, "^", fixed=TRUE)]
-##table contains 200-odd eukaryote transposon annots - filter for virus in taxa column
-virus_blastx_table <- dplyr::filter(viral_blastx_table, grepl('Viruses', V7))
-fwrite(virus_blastx_table, "output/trinotate/viral/virus_blastx_annots.csv")

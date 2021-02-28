@@ -19,14 +19,13 @@ grid.draw(vd)
 #Sum of genes with any annotation
 long.annotationreport <- melt(annotation.report,id.vars = "#gene_id", measure.vars = c("sprot_Top_BLASTX_hit", "sprot_Top_BLASTP_hit", "Pfam",  "eggnog", "Kegg"))
 any.annotations <- long.annotationreport[,.(any_annotations = any(!is.na(value))),by=`#gene_id`]
-any.annotations[,length(unique(`#gene_id`))]
-any.annotations[,sum(any_annotations)]
+(any.annotations[,sum(any_annotations)])/(any.annotations[,length(unique(`#gene_id`))])
+
 
 #Sum of genes with any Transdecoder predicted protein
 transdecoder.report <- melt(annotation.report, id.vars="#gene_id", measure.vars = c("prot_id"))
 any.transdecoder <- transdecoder.report[,.(transdecoder_annotation = any(!is.na(value))),by=`#gene_id`]
-any.transdecoder[,length(unique(`#gene_id`))]
-any.transdecoder[,sum(transdecoder_annotation)]
+(any.transdecoder[,sum(transdecoder_annotation)])/(any.transdecoder[,length(unique(`#gene_id`))])
 sum(any.transdecoder$transdecoder_annotation==FALSE)
 
 #Annotations per taxa
