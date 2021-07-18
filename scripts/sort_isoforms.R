@@ -13,6 +13,7 @@ sink(log, append = TRUE, type = "output")
 #############
 
 library(data.table)
+library(ggplot2)
 
 ###########
 # GLOBALS #
@@ -42,7 +43,16 @@ fwrite(isoform.list[isoforms_by_length,list(transcript_id)],
 isoform.list[,hist(length, breaks = 100, xlim=c(0, +5000),
 	main = "Transcript Lengths in New ASW Transcriptome Assembly",
 	xlab = "Transcript Length (bp)")]
-sum(isoform.list$length>500)
+
+ggplot(isoform.list, aes(x=length))+
+  geom_histogram(alpha=0.8, fill="#440154FF", colour="#440154FF", binwidth=50, boundary=0)+
+  scale_x_continuous(limits=c(0,3000))+
+  xlab("Transcript Length (bp)")+
+  ylab("Number of transcripts")+
+  theme_bw()
+
+(sum(isoform.list$length>=500))/(length(isoform.list$transcript_id))
+(sum(isoform.list$length<500))/(length(isoform.list$transcript_id))
 
 # write log
 sessionInfo()

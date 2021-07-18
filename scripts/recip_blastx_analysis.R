@@ -1,5 +1,5 @@
-library("data.table")
-library("dplyr")
+library(data.table)
+library(dplyr)
 
 ##mh results
 mh_nr_blastx <- fread("output/recip_blast/nr_blastx/nr_blastx.outfmt3")
@@ -18,6 +18,18 @@ mh_min_evalues <- mh_nr_blastx[,.SD[which.min(evalue)], by=transcript_id]
 mh_virus <- dplyr::filter(mh_min_evalues, grepl('virus', annotation))
 mh_virus <- dplyr::filter(mh_virus, !grepl('transposon', annotation))
 fwrite(mh_virus, "output/recip_blast/nr_blastx/viral_annots.csv")
+
+##merge with viral annots from trinotate
+virus_annots <- fread("output/trinotate/viral/genes_viral_annots.csv")
+all_virus <- merge(virus_annots, mh_virus, by="transcript_id", all.x=TRUE, all.y=TRUE)
+##list of all viral genes
+list_viral_transcripts <- all_virus[,c(1)]
+##get trinotate info for all viral genes
+trinotate.min.eval <- fread('output/trinotate/sorted/longest_isoform_annots.csv', na.strings = ".")
+all_virus_trinotate <- merge(list_viral_transcripts, trinotate.min.eval, by="transcript_id", all.x=TRUE)
+##merge with blast annots
+all_viral_annots <- merge(all_virus_trinotate, mh_virus, by="transcript_id", all.x=TRUE)
+fwrite(all_viral_annots, "output/trinotate/all_viral_annots.csv")
 
 transcript_id_annot <- mh_virus[,c(1,13)]
 fwrite(transcript_id_annot, "output/recip_blast/nr_blastx/gene_vs_annot.csv")

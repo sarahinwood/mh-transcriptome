@@ -13,6 +13,7 @@ sink(log, append = TRUE, type = "output")
 #############
 
 library(data.table)
+library(dplyr)
 
 ###########
 # GLOBALS #
@@ -48,10 +49,11 @@ fwrite(annots_longest_isoform, snakemake@output[["longest_iso_annots"]])
 ##filter out gene ids for unannotated OR viral annot genes
 genes_no_annot <- trinotate.report[is.na(sprot_Top_BLASTX_hit),]
 ##list of unique gene ids from table of genes with no blastx annot
-list_ids_no_annot <- list(unique(genes_no_annot$`#gene_id`))
+id_dt_no_annot <- data.table(unique(genes_no_annot$`#gene_id`))
 ##filter out gene ids for viral annot genes
 virus_x <- data.table(dplyr::filter(trinotate.report, grepl('Viruses', sprot_Top_BLASTX_hit)))
 virus_p <- data.table(dplyr::filter(trinotate.report, grepl('Viruses', sprot_Top_BLASTP_hit)))
-virus_annots <- full_join(virus_x, virus_p)
-list_viral_or_unann <- list(unique(virus_annots$`#gene_id`), list_ids_no_annot)
-fwrite(list_ids_no_annot, snakemake@output[["viral_or_unann_transcript_ids"]])
+virus_annots_table <- full_join(virus_x, virus_p)
+id_dt_viral_annots <- data.table(unique(virus_annots_table$`#gene_id`))
+id_dt_viral_or_unann <- full_join(id_dt_no_annot, id_dt_viral_annots)
+fwrite(id_dt_viral_or_unann, snakemake@output[["viral_or_unann_transcript_ids"]])
