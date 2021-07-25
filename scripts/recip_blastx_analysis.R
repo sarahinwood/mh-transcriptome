@@ -3,7 +3,9 @@ library(dplyr)
 
 ##mh results
 mh_nr_blastx <- fread("output/recip_blast/nr_blastx/nr_blastx.outfmt3")
-setnames(mh_nr_blastx, old=c("V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10", "V11", "V12", "V13"), new=c("transcript_id", "nr_db_id", "%_identical_matches", "alignment_length", "no_mismatches", "no_gap_openings", "query_start", "query_end", "subject_start", "subject_end", "evalue", "bit_score", "annotation"))
+
+setnames(mh_nr_blastx, old=c("V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10", "V11", "V12", "V13"),
+         new=c("transcript_id", "nr_db_id", "%_identical_matches", "alignment_length", "no_mismatches", "no_gap_openings", "query_start", "query_end", "subject_start", "subject_end", "evalue", "bit_score", "annotation"))
 ##order so that in event of eval min. tie, which.min takes hit with highest bitscore
 setorder(mh_nr_blastx, transcript_id, evalue, -bit_score)
 ##ID all LBFV hits (even if better other hit)
@@ -11,6 +13,9 @@ Mh_allhits_lbfv <- dplyr::filter(mh_nr_blastx, grepl('Leptopilina boulardi filam
 Mh_allhits_lbfv$split_annotation <- tstrsplit(Mh_allhits_lbfv$annotation, "<>", keep=c(1))
 Mh_allhits_lbfv_unique <- (unique(Mh_allhits_lbfv$split_annotation))
 
+##am I losing viral hits in this filtering
+##TRINITY_DN107665_c0_g1_i1 doesn't have a viral hit in minevalue but blastx is DaFV
+##losing to evalues above blast threshold
 
 ##extract result with lowest evalue for each peptide - what if multiple rows with lowest min?
 mh_min_evalues <- mh_nr_blastx[,.SD[which.min(evalue)], by=transcript_id]
@@ -18,6 +23,11 @@ mh_min_evalues <- mh_nr_blastx[,.SD[which.min(evalue)], by=transcript_id]
 mh_virus <- dplyr::filter(mh_min_evalues, grepl('virus', annotation))
 mh_virus <- dplyr::filter(mh_virus, !grepl('transposon', annotation))
 fwrite(mh_virus, "output/recip_blast/nr_blastx/viral_annots.csv")
+
+LbFV_annots <- dplyr::filter(mh_virus, grepl('Leptopilina boulardi filamentous virus', annotation))
+DaFV_annots <- dplyr::filter(mh_virus, grepl('Drosophila-associated filamentous virus', annotation))
+LbFV_DaFV <- full_join(LbFV_annots, DaFV_annots)
+fwrite(LbFV_DaFV, "output/recip_blast/nr_blastx/LbFV_DaFV_annots.csv")
 
 ##merge with viral annots from trinotate
 virus_annots <- fread("output/trinotate/viral/genes_viral_annots.csv")

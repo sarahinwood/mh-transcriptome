@@ -34,6 +34,7 @@ bbduk_adapters = '/adapters.fa'
 bbduk_container = 'https://github.com/deardenlab/container-bbmap/releases/download/0.0.3/container-bbmap.bbmap_38.90.sif'
 trinotate_container = 'shub://TomHarrop/trinotate_pipeline:v0.0.12'
 ##program-provided docker containers - latest versions as of 2021-07-09
+kraken_container = 'docker://staphb/kraken2:2.1.2-no-db'
 trinity_container = 'docker://trinityrnaseq/trinityrnaseq:2.12.0'
 busco_container = 'docker://ezlabgva/busco:v5.2.1_cv1'
 tidyverse_container = 'docker://rocker/tidyverse:4.1.0'
@@ -53,26 +54,30 @@ rule target:
         expand('output/busco/{filter}/short_summary.specific.hymenoptera_odb10.{filter}.txt',
                 filter=['expression', 'length']),
         #'output/busco/short_summaries/busco_figure.png',
-        'output/fastqc',
+        expand('output/fastqc/{sample}_r{n}_fastqc.zip', sample=all_samples, n=[1,2]),
+        'output/fastqc/Mh_venom3_r2_fastqc.zip',
         'output/trinity_stats/stats.txt',
         'output/trinity_stats/xn50.out.txt',
         'output/trinity_stats/bowtie2_alignment_stats.txt',
         expand('output/trinity_stats/isoforms_by_{filter}_bowtie2_alignment_stats.txt',
                 filter=['expression', 'length']),
         'output/trinotate/sorted/longest_isoform_annots.csv',
-        'output/recip_blast/nr_blastx/nr_blastx.outfmt3',
-        'output/bbduk_trim/Mh_venom3_r2.fq.gz'
+        'output/alt_recip_blast/nr_blastx/nr_blastx.outfmt3',
+        expand('output/kraken/kraken_{sample}_out.txt', sample=all_samples),
+        'output/kraken/kraken_Mh_venom3_out.txt'
+
 
 ################################################################
 ##Reciprocal blastx searching for viral annots for unann genes##
 ################################################################
 
 ##need to update using taxid instead
+##trial with BLOSUM90 to see whether that increases or decreases hits after having lower e-value threshold
 rule recip_nr_blastx:
     input:
         pot_viral_transcripts = 'output/recip_blast/viral_blastx/potential_viral_transcripts.fasta'
     output:
-        blastx_res = 'output/recip_blast/nr_blastx/nr_blastx.outfmt3'
+        blastx_res = 'output/alt_recip_blast/nr_blastx/nr_blastx.outfmt3'
     params:
         blast_db = 'bin/db/blastdb/nr/nr'
     threads:
@@ -86,8 +91,8 @@ rule recip_nr_blastx:
         '-query {input.pot_viral_transcripts} '
         '-db {params.blast_db} '
         '-num_threads {threads} '
-        '-evalue 1e-05 '
-        '-outfmt "6 std salltitles" > {output.blastx_res} '
+        '-evalue 0.5 '
+        '-outfmt "6 std staxids salltitles" > {output.blastx_res} '
         '2> {log}'
 
 rule filter_pot_viral_transcripts:
@@ -545,17 +550,82 @@ rule bbmerge:
         'adapters={params.adapters} '
         '&> {log}'
 
+rule kraken_venom3:
+    input:
+        r1 = 'output/bbduk_trim/Mh_venom3_r1.fq.gz',
+        r2 = 'output/bbduk_trim/Mh_venom3_r2.fq.gz',
+        db = 'bin/db/kraken_std'
+    output:
+        out = 'output/kraken/kraken_Mh_venom3_out.txt',
+        report = 'output/kraken/reports/kraken_Mh_venom3_report.txt'
+    log:
+        'output/logs/kraken/kraken_Mh_venom3.log'
+    threads:
+        20
+    singularity:
+        kraken_container
+    shell:
+        'kraken2 '
+        '--threads {threads} '
+        '--db {input.db} '
+        '--paired '
+        '--output {output.out} '
+        '--report {output.report} '
+        '--use-names '
+        '{input.r1} {input.r2} '
+        '&> {log}'
+
+##kraken db from https://benlangmead.github.io/aws-indexes/k2 as build std was failing
+rule kraken:
+    input:
+        r1 = 'output/bbduk_trim/{sample}_r1.fq.gz',
+        r2 = 'output/bbduk_trim/{sample}_r2.fq.gz',
+        db = 'bin/db/kraken_std'
+    output:
+        out = 'output/kraken/kraken_{sample}_out.txt',
+        report = 'output/kraken/reports/kraken_{sample}_report.txt'
+    log:
+        'output/logs/kraken/kraken_{sample}.log'
+    threads:
+        20
+    singularity:
+        kraken_container
+    shell:
+        'kraken2 '
+        '--threads {threads} '
+        '--db {input.db} '
+        '--paired '
+        '--output {output.out} '
+        '--report {output.report} '
+        '--use-names '
+        '{input.r1} {input.r2} '
+        '&> {log}'
+
+rule fastqc_venom3:
+    input:
+        expand('output/bbduk_trim/Mh_venom3_r{n}.fq.gz', n=[1,2])
+    output:
+        "output/fastqc/Mh_venom3_r{n}_fastqc.zip"
+    params:
+        outdir = directory('output/fastqc')
+    singularity:
+        fastqc_container
+    shell:
+        'fastqc --outdir {params.outdir} {input}'
+
 rule fastqc:
     input:
         expand('output/bbduk_trim/{sample}_r{n}.fq.gz',
             sample=all_samples, n=[1,2])
     output:
-        directory('output/fastqc')
+        expand('output/fastqc/{sample}_r{n}_fastqc.zip', sample=all_samples, n=[1,2])
+    params:
+        outdir = directory('output/fastqc')
     singularity:
         fastqc_container
     shell:
-        'mkdir -p {output} ; '
-        'fastqc --outdir {output} {input}'
+        'mkdir -p {params.outdir} ; '
+        'fastqc --outdir {params.outdir} {input}'
 
 ##trim adapters and low quality seq.
 rule bbduk_trim_venom3:
@@ -583,23 +653,6 @@ rule bbduk_trim_venom3:
         'ktrim=r k=23 mink=11 hdist=1 tpe tbo qtrim=r trimq=15 '
         '&> {log}'
 
-##need to run for venom3 as sample was excluded from transcriptome
-rule cat_reads_venom3:
-    input:
-        l1r1 = 'data/reads/HM723BCX3/HM723BCX3-6267-15-58-01_S15_L001_R1_001.fastq.gz',
-        l2r1 = 'data/reads/HM723BCX3/HM723BCX3-6267-15-58-01_S15_L002_R1_001.fastq.gz',
-        l1r2 = 'data/reads/HM723BCX3/HM723BCX3-6267-15-58-01_S15_L001_R2_001.fastq.gz',
-        l2r2 = 'data/reads/HM723BCX3/HM723BCX3-6267-15-58-01_S15_L002_R2_001.fastq.gz'
-    output: 
-        r1 = temp('output/joined/venom3_r1.fq.gz'),
-        r2 = temp('output/joined/venom3_r2.fq.gz')
-    threads:
-        1
-    shell:
-        'cat {input.l1r1} {input.l2r1} > {output.r1} & '
-        'cat {input.l1r2} {input.l2r2} > {output.r2} & '
-        'wait'
-
 ##trim adapters and low quality seq.
 rule bbduk_trim:
     input:
@@ -625,6 +678,23 @@ rule bbduk_trim:
         'ref={params.adapters} '
         'ktrim=r k=23 mink=11 hdist=1 tpe tbo qtrim=r trimq=15 ftl=1 ' ##force trim left 1st base (0th) - lib prep kit added T overhang
         '&> {log}'
+
+##need to run for venom3 as sample was excluded from transcriptome
+rule cat_reads_venom3:
+    input:
+        l1r1 = 'data/reads/HM723BCX3/HM723BCX3-6267-15-58-01_S15_L001_R1_001.fastq.gz',
+        l2r1 = 'data/reads/HM723BCX3/HM723BCX3-6267-15-58-01_S15_L002_R1_001.fastq.gz',
+        l1r2 = 'data/reads/HM723BCX3/HM723BCX3-6267-15-58-01_S15_L001_R2_001.fastq.gz',
+        l2r2 = 'data/reads/HM723BCX3/HM723BCX3-6267-15-58-01_S15_L002_R2_001.fastq.gz'
+    output: 
+        r1 = temp('output/joined/venom3_r1.fq.gz'),
+        r2 = temp('output/joined/venom3_r2.fq.gz')
+    threads:
+        1
+    shell:
+        'cat {input.l1r1} {input.l2r1} > {output.r1} & '
+        'cat {input.l1r2} {input.l2r2} > {output.r2} & '
+        'wait'
 
 ##cat together any sample files split across multiple lanes
 rule cat_reads:

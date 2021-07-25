@@ -7,9 +7,11 @@ trinotate.min.eval <- fread('output/trinotate/sorted/longest_isoform_annots.csv'
 virus_x <- data.table(dplyr::filter(trinotate.min.eval, grepl('Viruses', sprot_Top_BLASTX_hit)))
 virus_p <- data.table(dplyr::filter(trinotate.min.eval, grepl('Viruses', sprot_Top_BLASTP_hit)))
 virus_annots <- full_join(virus_x, virus_p)
+virus_annots <- data.table(dplyr::filter(virus_annots, !grepl('transposon', sprot_Top_BLASTX_hit)))
 fwrite(virus_annots, "output/trinotate/viral/genes_viral_annots.csv")
 
-virus <- data.table(dplyr::filter(virus, !grepl('transposon', sprot_Top_BLASTX_hit)))
+
+
 ##viral taxa
 virus$sprot_Top_BLASTX_hit <- tstrsplit(virus$sprot_Top_BLASTX_hit, "`", keep=1, fixed=TRUE)
 split.first.blastx <- virus[,tstrsplit(sprot_Top_BLASTX_hit, "^", fixed=TRUE), by=`#gene_id`]
