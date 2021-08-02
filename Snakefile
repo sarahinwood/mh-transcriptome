@@ -64,8 +64,8 @@ rule target:
         'output/trinotate/sorted/longest_isoform_annots.csv',
         'output/alt_recip_blast/nr_blastx/nr_blastx.outfmt3',
         expand('output/kraken/kraken_{sample}_out.txt', sample=all_samples),
-        'output/kraken/kraken_Mh_venom3_out.txt'
-
+        'output/kraken/kraken_Mh_venom3_out.txt',
+        'output/fastqc_overrep/overrep_blastx.outfmt3'
 
 ################################################################
 ##Reciprocal blastx searching for viral annots for unann genes##
@@ -612,6 +612,28 @@ rule fastqc_venom3:
         fastqc_container
     shell:
         'fastqc --outdir {params.outdir} {input}'
+
+rule blast_fastqc_overrep:
+    input:
+        overrep = 'output/fastqc_overrep/mh_rnaseq_overrep_seqs.fasta'
+    output:
+        blastx_res = 'output/fastqc_overrep/overrep_blastx.outfmt3'
+    params:
+        blast_db = 'bin/db/blastdb/nr/nr'
+    threads:
+        50
+    singularity:
+        blast_container
+    log:
+        'output/logs/blast_fastqc_overrep.log'
+    shell:
+        'blastx '
+        '-query {input.overrep} '
+        '-db {params.blast_db} '
+        '-num_threads {threads} '
+        '-evalue 0.05 '
+        '-outfmt "6 std staxids salltitles" > {output.blastx_res} '
+        '2> {log}'
 
 rule fastqc:
     input:
