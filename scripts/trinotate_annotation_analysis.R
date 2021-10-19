@@ -17,22 +17,13 @@ bp_go <- annotation.report[!is.na(gene_ontology_BLASTP), unique(`#gene_id`)]
 
 number.genes <- annotation.report[!is.na(`#gene_id`),length(unique(`#gene_id`))]
 
-##transposons
-transposon_x <- dplyr::filter(annotation.report, grepl('transposon', sprot_Top_BLASTX_hit))
-transposon_p <- dplyr::filter(annotation.report, grepl('transposon', sprot_Top_BLASTP_hit))
-transposon <- full_join(transposon_x, transposon_p)
-length(unique(transposon$`#gene_id`))
-##retrotransposable elements
-retrotransposon_x <- dplyr::filter(annotation.report, grepl('retrotransp', sprot_Top_BLASTX_hit))
-retrotransposon_p <- dplyr::filter(annotation.report, grepl('retrotransp', sprot_Top_BLASTP_hit))
-retrotransposon <- full_join(retrotransposon_x, retrotransposon_p)
-length(unique(retrotransposon$`#gene_id`))
-##retroviruses
-retroviridae_x <- dplyr::filter(annotation.report, grepl('Retroviridae', sprot_Top_BLASTX_hit))
-retroviridae_p <- dplyr::filter(annotation.report, grepl('Retroviridae', sprot_Top_BLASTP_hit))
-retroviridae <- full_join(retroviridae_x, retroviridae_p)
-length(unique(retroviridae$`#gene_id`))
-
+##overlap of blast hits for transdecoder predictions
+trans_annots <- subset(annotation.report, !is.na(prot_id))
+trans_annots <- trans_annots[,c(1,3,7)]
+trans_blast <- trans_annots[!is.na(trans_annots$sprot_Top_BLASTX_hit) & !is.na(trans_annots$sprot_Top_BLASTP_hit),]
+trans_blast$blastx <- tstrsplit(trans_blast$sprot_Top_BLASTX_hit, "^", keep=c(1), fixed=TRUE)
+trans_blast$blastp <- tstrsplit(trans_blast$sprot_Top_BLASTP_hit, "^", keep=c(1), fixed=TRUE)
+sum(trans_blast$blastx==trans_blast$blastp)
 
 #Draw Venn Diagram
 vd <- venn.diagram(x = list("Pfam"=pfam, "BlastX"=blastx, "Kegg"=kegg), filename=NULL,
@@ -41,17 +32,11 @@ vd <- venn.diagram(x = list("Pfam"=pfam, "BlastX"=blastx, "Kegg"=kegg), filename
 grid.newpage()
 grid.draw(vd)
 
-vd2 <- venn.diagram(x = list("Pfam GO"=pfam_go, "BlastX GO"=bx_go, "BlastP GO"=bp_go), filename=NULL,
-                    fill=c("#440154FF", "#21908CFF", "#FDE725FF"), alpha=0.7, cex = 1, cat.cex=1, lwd=1.5,
-                    main=paste("Total Number of Genes = ", number.genes))
-grid.newpage()
-grid.draw(vd2)
-
 #Sum of genes with any annotation
-long.annotationreport <- melt(annotation.report,id.vars = "#gene_id", measure.vars = c("sprot_Top_BLASTX_hit", "sprot_Top_BLASTP_hit", "Pfam",  "eggnog", "Kegg"))
+long.annotationreport <- melt(annotation.report,id.vars = "#gene_id", measure.vars = c("sprot_Top_BLASTX_hit", "Pfam", "Kegg"))
 any.annotations <- long.annotationreport[,.(any_annotations = any(!is.na(value))),by=`#gene_id`]
-##percentage with any annotation
-(any.annotations[,sum(any_annotations)]/any.annotations[,length(unique(`#gene_id`))])*100
+any.annotations[,length(unique(`#gene_id`))]
+any.annotations[,sum(any_annotations)]
 
 #Sum of genes with blast annotation
 long.blastreport <- melt(annotation.report,id.vars = "#gene_id", measure.vars = c("sprot_Top_BLASTX_hit", "sprot_Top_BLASTP_hit"))
@@ -65,7 +50,7 @@ transdecoder.report <- melt(annotation.report, id.vars="#gene_id", measure.vars 
 any.transdecoder <- transdecoder.report[,.(transdecoder_annotation = any(!is.na(value))),by=`#gene_id`]
 any.transdecoder[,length(unique(`#gene_id`))]
 any.transdecoder[,sum(transdecoder_annotation)]
-sum(any.transdecoder$transdecoder_annotation==TRUE)
+sum(any.transdecoder$transdecoder_annotation==FALSE)
 
 any_annot_ids <- subset(any.annotations, any.annotations$any_annotations==TRUE)
 any_transdecoder_ids <- subset(any.transdecoder, any.transdecoder$transdecoder_annotation==TRUE)
@@ -118,20 +103,7 @@ fwrite(genes.per.genus, "output/trinotate/genes_per_genus.csv")
 plot.genes.per.genus <- fread("output/trinotate/genes_per_genus_plot.csv", strip.white=FALSE)
 ggplot(plot.genes.per.genus, aes(x=reorder(V7, -V1), y=V1))+
   geom_col(alpha=0.8, fill="#440154FF", colour="#440154FF", width=0.9)+
-  ylim(c(0, 8000))+
+  ylim(c(0, 7000))+
   theme_bw()+
   theme(axis.text.x = element_text(angle = 65, hjust = 1, face = "italic")) +
   xlab("Genus")+ylab("Number of BlastX Annotations")
-
-#plot annotations per class
-Classes <- plot.genes.per.genus[,sum(V1), by=Class]
-class_plot<- ggplot(Classes, aes(x=reorder(Class, -V1), y=V1))+
-  geom_col(alpha=0.8, fill="#440154FF", colour="#440154FF", width=0.9)+
-  theme_bw()+
-  ylim(c(0, 8000))+
-  theme(axis.text.x = element_text(angle = 65, hjust = 1, face = "italic"),
-        plot.margin=unit(c(0.2,0.2,0.2,0.2), "cm")) +
-  xlab("Class")+ylab("Number of BlastX annotations")
-
-##plot area of genus plot slightly larger because of longest label on class plot
-grid.arrange(class_plot, genus_plot, nrow=1, widths=c(1.1,2))

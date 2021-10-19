@@ -51,33 +51,128 @@ tom_tidyverse_container = 'shub://TomHarrop/singularity-containers:r_3.5.0'
 
 rule target:
     input:
-        expand('output/busco/{filter}/short_summary.specific.hymenoptera_odb10.{filter}.txt',
-                filter=['expression', 'length']),
-        #'output/busco/short_summaries/busco_figure.png',
+        ##kraken for contamination detection
+        expand('output/kraken/kraken_{sample}_out.txt', sample=all_samples),
+        'output/kraken/kraken_Mh_venom3_out.txt',
+        ##fastQC
         expand('output/fastqc/{sample}_r{n}_fastqc.zip', sample=all_samples, n=[1,2]),
         'output/fastqc/Mh_venom3_r2_fastqc.zip',
+        'output/fastqc_overrep/overrep_blastx.outfmt3',
+        ##assembly stats
         'output/trinity_stats/stats.txt',
         'output/trinity_stats/xn50.out.txt',
         'output/trinity_stats/bowtie2_alignment_stats.txt',
         expand('output/trinity_stats/isoforms_by_{filter}_bowtie2_alignment_stats.txt',
                 filter=['expression', 'length']),
+        expand('output/busco/{filter}/short_summary.specific.hymenoptera_odb10.{filter}.txt',
+                filter=['expression', 'length']),
+        'output/busco/short_summaries/busco_figure.png',
+        ##trinotate
         'output/trinotate/sorted/longest_isoform_annots.csv',
-        'output/alt_recip_blast/nr_blastx/nr_blastx.outfmt3',
-        expand('output/kraken/kraken_{sample}_out.txt', sample=all_samples),
-        'output/kraken/kraken_Mh_venom3_out.txt',
-        'output/fastqc_overrep/overrep_blastx.outfmt3'
+        'output/trinotate/signalp/signalp.out',
+        ##recip blast
+        'output/recip_blast/nr_blastx/nr_blastx.outfmt3',
+        ##blast MhV against transcriptome and v.v.
+        'output/MhV_blast/MhV_v_transcriptome/blastn.outfmt6',
+        'output/MhV_blast/transcriptome_v_MhV/blastn.outfmt6'
+
+#####################
+## MhV gene blasts ##
+#####################
+
+rule blast_MhV_genes:
+    input:
+        transcripts = 'output/trinity_filtered_isoforms/isoforms_by_length.fasta',
+        db = 'output/MhV_blast/MhV_blastdb/MhV.nhr'
+    output:
+        blast_res = 'output/MhV_blast/transcriptome_v_MhV/blastn.outfmt6'
+    params:
+        db = 'output/MhV_blast/MhV_blastdb/MhV'
+    threads:
+        20
+    log:
+        'output/logs/blast_MhV_viral_genes.log'
+    shell:
+        'blastn '
+        '-query {input.transcripts} '
+        '-db {params.db} '
+        '-num_threads {threads} '
+        '-evalue 1e-05 '
+        '-outfmt "6 std salltitles" > {output.blast_res} '
+        '2>{log}' 
+
+rule make_MhV_blastdb:
+    input:
+        'data/Mh_prodigal/nucleotide_seq.fasta'
+    output:
+        'output/MhV_blast/MhV_blastdb/MhV.nhr'
+    params:
+        db_name = 'MhV',
+        db_dir = 'output/MhV_blast/MhV_blastdb/MhV'
+    threads:
+        10
+    log:
+        'output/logs/make_MhV_blastdb.log'
+    shell:
+        'makeblastdb '
+        '-in {input} '
+        '-dbtype nucl '
+        '-title {params.db_name} '
+        '-out {params.db_dir} '
+        '-parse_seqids '
+        '2> {log}'
+
+rule blast_viral_genes:
+    input:
+        viral_contigs = 'data/Mh_prodigal/nucleotide_seq.fasta',
+        db = 'output/MhV_blast/transcriptome_blastdb/mh_transcriptome.nhr'
+    output:
+        blast_res = 'output/MhV_blast/MhV_v_transcriptome/blastn.outfmt6'
+    params:
+        db = 'output/MhV_blast/transcriptome_blastdb/mh_transcriptome'
+    threads:
+        20
+    log:
+        'output/logs/blast_MhV_viral_genes.log'
+    shell:
+        'blastn '
+        '-query {input.viral_contigs} '
+        '-db {params.db} '
+        '-num_threads {threads} '
+        '-evalue 1e-05 '
+        '-outfmt "6 std salltitles" > {output.blast_res} '
+        '2>{log}'  
+
+rule make_transcriptome_blastdb:
+    input:
+        'output/trinity_filtered_isoforms/isoforms_by_length.fasta'
+    output:
+        'output/MhV_blast/transcriptome_blastdb/mh_transcriptome.nhr'
+    params:
+        db_name = 'mh_transcriptome',
+        db_dir = 'output/MhV_blast/transcriptome_blastdb/mh_transcriptome'
+    threads:
+        10
+    log:
+        'output/logs/make_transcriptome_blastdb.log'
+    shell:
+        'makeblastdb '
+        '-in {input} '
+        '-dbtype nucl '
+        '-title {params.db_name} '
+        '-out {params.db_dir} '
+        '-parse_seqids '
+        '2> {log}'
 
 ################################################################
 ##Reciprocal blastx searching for viral annots for unann genes##
 ################################################################
 
-##need to update using taxid instead
-##trial with BLOSUM90 to see whether that increases or decreases hits after having lower e-value threshold
 rule recip_nr_blastx:
     input:
         pot_viral_transcripts = 'output/recip_blast/viral_blastx/potential_viral_transcripts.fasta'
     output:
-        blastx_res = 'output/alt_recip_blast/nr_blastx/nr_blastx.outfmt3'
+        blastx_res = 'output/recip_blast/nr_blastx/nr_blastx.outfmt3'
     params:
         blast_db = 'bin/db/blastdb/nr/nr'
     threads:
@@ -173,24 +268,38 @@ rule filter_unann_transcripts:
         'out={output.unann_transcripts} '
         '&> {log}'
 
+#######################################
+##Transcriptome assembled & annotated##
+#######################################
+
 rule sort_trinotate_annots:
     input:
         trinotate_report = 'output/trinotate/trinotate/trinotate_annotation_report.txt',
+        signalp = 'output/trinotate/signalp/signalp.out',
         longest_isoform_ids = 'output/trinity_filtered_isoforms/isoforms_by_length.txt'
     output:
         viral_or_unann_transcript_ids = 'output/trinotate/sorted/ids_genes_no_blastx_or_viral_annot.txt',
-        best_annot_per_gene = 'output/trinotate/sorted/best_annot_per_gene.csv',
         longest_iso_annots = 'output/trinotate/sorted/longest_isoform_annots.csv'
     singularity:
         tidyverse_container
     log:
         'output/logs/sort_trinotate_annots.log'
     script:
-        'scripts/sort_trinotate_annots.R'    
+        'scripts/sort_trinotate_annots.R'  
 
-#######################################
-##Transcriptome assembled & annotated##
-#######################################
+##doesn't run inside singularity Trinotate due to licensing issues
+rule signalp:
+    input:
+        'output/trinotate/TransDecoder/Trinity.fasta.transdecoder.pep'
+    output:
+        results = 'output/trinotate/signalp/signalp.out'
+    threads:
+        4
+    shell:
+        'signalp '
+        '-f short '
+        '{input} '
+        '> {output.results}'
 
 ##annotate transcriptome using separate Trinotate Snakemake workflow
 rule trinotate:
@@ -236,7 +345,7 @@ rule plot_busco:
     shell:
         'mkdir {params.ss_dir} & '
         'cp {input.ss} {params.ss_dir}/ & '
-        'python3 /busco/scripts/generate_plot.py '
+        'python3 scripts/generate_plot.py '
         '-wd {params.ss_dir}'
 
 ##busco run on both length-filtered (fasta with longest isoform per gene) and expression-filtered (fasta with most highly expressed isoform per gene) separately
