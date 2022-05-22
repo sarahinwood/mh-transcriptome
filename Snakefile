@@ -36,6 +36,7 @@ trinotate_container = 'shub://TomHarrop/trinotate_pipeline:v0.0.12'
 ##program-provided docker containers - latest versions as of 2021-07-09
 kraken_container = 'docker://staphb/kraken2:2.1.2-no-db'
 trinity_container = 'docker://trinityrnaseq/trinityrnaseq:2.12.0'
+ST_trinity_container = 'docker://trinityrnaseq/trinityrnaseq:2.11.0'
 busco_container = 'docker://ezlabgva/busco:v5.2.1_cv1'
 tidyverse_container = 'docker://rocker/tidyverse:4.1.0'
 blast_container= 'docker://ncbi/blast:2.12.0'
@@ -52,10 +53,13 @@ tom_tidyverse_container = 'shub://TomHarrop/singularity-containers:r_3.5.0'
 rule target:
     input:
         ##kraken for contamination detection
-        expand('output/kraken/kraken_{sample}_out.txt', sample=all_samples),
+        expand('output/kraken/kraken_{sample}_out.txt',
+            sample=all_samples),
         'output/kraken/kraken_Mh_venom3_out.txt',
+        'output/kraken/reports/kraken_all_report.txt',
         ##fastQC
-        expand('output/fastqc/{sample}_r{n}_fastqc.zip', sample=all_samples, n=[1,2]),
+        expand('output/fastqc/{sample}_r{n}_fastqc.zip',
+            sample=all_samples, n=[1,2]),
         'output/fastqc/Mh_venom3_r2_fastqc.zip',
         'output/fastqc_overrep/overrep_blastx.outfmt3',
         ##assembly stats
@@ -71,10 +75,14 @@ rule target:
         'output/trinotate/sorted/longest_isoform_annots.csv',
         'output/trinotate/signalp/signalp.out',
         ##recip blast
-        'output/recip_blast/nr_blastx/nr_blastx.outfmt3',
+        expand('output/recip_blast/{domain}_nr_blastx/nr_blastx.outfmt3',
+            domain=["bacterial", "viral"]),
+        "output/recip_blast/viral_nr_blastx/pid_90_blastn.outfmt6",
         ##blast MhV against transcriptome and v.v.
         'output/MhV_blast/MhV_v_transcriptome/blastn.outfmt6',
-        'output/MhV_blast/transcriptome_v_MhV/blastn.outfmt6'
+        'output/MhV_blast/transcriptome_v_MhV/blastn.outfmt6',
+        ##supertranscripts
+        'output/supertranscripts/trinity_genes.fasta'
 
 #####################
 ## MhV gene blasts ##
@@ -164,71 +172,38 @@ rule make_transcriptome_blastdb:
         '-parse_seqids '
         '2> {log}'
 
-################################################################
-##Reciprocal blastx searching for viral annots for unann genes##
-################################################################
+##########################################################################
+##Reciprocal blastx searching for viral/bacterial annots for unann genes##
+##########################################################################
 
-rule recip_nr_blastx:
+#blastn of genes with 90%+ ID
+rule blastn_pid90:
     input:
-        pot_viral_transcripts = 'output/recip_blast/viral_blastx/potential_viral_transcripts.fasta'
+        "output/recip_blast/viral_nr_blastx/pid_90.fasta"
     output:
-        blastx_res = 'output/recip_blast/nr_blastx/nr_blastx.outfmt3'
+        "output/recip_blast/viral_nr_blastx/pid_90_blastn.outfmt6"
     params:
-        blast_db = 'bin/db/blastdb/nr/nr'
+        blast_db = 'bin/db/blastdb/nt/nt'
     threads:
         50
     singularity:
         blast_container
     log:
-        'output/logs/recip_nr_blastx.log'
+        'output/logs/blastn_pid90.log'
     shell:
-        'blastx '
-        '-query {input.pot_viral_transcripts} '
+        'blastn '
+        '-query {input} '
         '-db {params.blast_db} '
         '-num_threads {threads} '
         '-evalue 0.5 '
         '-outfmt "6 std staxids salltitles" > {output.blastx_res} '
         '2> {log}'
 
-rule filter_pot_viral_transcripts:
+rule recip_nr_blastx:
     input:
-        length_filtered_transcriptome = 'output/trinity_filtered_isoforms/isoforms_by_length.fasta',
-        transcript_hit_ids = 'output/recip_blast/viral_blastx/transcripts_viral_hit_ids.txt'
+        pot_dom_transcripts = 'output/recip_blast/{domain}_blastx/potential_{domain}_transcripts.fasta'
     output:
-        pot_viral_transcripts = 'output/recip_blast/viral_blastx/potential_viral_transcripts.fasta'
-    threads:
-        50
-    singularity:
-        bbduk_container
-    log:
-        'output/logs/filter_pot_viral_transcripts.log'
-    shell:
-        'filterbyname.sh '
-        'in={input.length_filtered_transcriptome} '
-        'include=t '
-        'names={input.transcript_hit_ids} '
-        'substring=name '
-        'out={output.pot_viral_transcripts} '
-        '&> {log}'
-
-rule filter_transcript_ids:
-    input:
-        blastx_res = 'output/recip_blast/viral_blastx/transcriptome_viral_blastx.outfmt3'
-    output:
-        transcript_hit_ids = 'output/recip_blast/viral_blastx/transcripts_viral_hit_ids.txt'
-    singularity:
-        tidyverse_container
-    log:
-        'output/logs/filter_transcript_ids.log'
-    script:
-        'scripts/recip_viral_blastx_transcript_hit_id_list.R'
-
-rule recip_blastx_viral:
-    input:
-        unann_transcripts = 'output/trinotate/sorted/unann_transcripts.fasta',
-        taxid_list = 'data/taxids/species_virus_taxids.txt'
-    output:
-        blastx_res = 'output/recip_blast/viral_blastx/transcriptome_viral_blastx.outfmt3'
+        blastx_res = 'output/recip_blast/{domain}_nr_blastx/nr_blastx.outfmt3'
     params:
         blast_db = 'bin/db/blastdb/nr/nr'
     threads:
@@ -236,10 +211,66 @@ rule recip_blastx_viral:
     singularity:
         blast_container
     log:
-        'output/logs/recip_blastx_viral.log'
+        'output/logs/recip_nr_blastx_{domain}.log'
     shell:
         'blastx '
-        '-query {input.unann_transcripts} '
+        '-query {input.pot_dom_transcripts} '
+        '-db {params.blast_db} '
+        '-num_threads {threads} '
+        '-evalue 0.5 '
+        '-outfmt "6 std staxids salltitles" > {output.blastx_res} '
+        '2> {log}'
+
+rule filter_pot_transcripts:
+    input:
+        length_filtered_transcriptome = 'output/trinity_filtered_isoforms/isoforms_by_length.fasta',
+        transcript_hit_ids = 'output/recip_blast/{domain}_blastx/transcripts_{domain}_hit_ids.txt'
+    output:
+        pot_dom_transcripts = 'output/recip_blast/{domain}_blastx/potential_{domain}_transcripts.fasta'
+    threads:
+        50
+    singularity:
+        bbduk_container
+    log:
+        'output/logs/filter_pot_{domain}_transcripts.log'
+    shell:
+        'filterbyname.sh '
+        'in={input.length_filtered_transcriptome} '
+        'include=t '
+        'names={input.transcript_hit_ids} '
+        'substring=name '
+        'out={output.pot_dom_transcripts} '
+        '&> {log}'
+
+rule filter_transcript_ids:
+    input:
+        blastx_res = 'output/recip_blast/{domain}_blastx/transcriptome_{domain}_blastx.outfmt3'
+    output:
+        transcript_hit_ids = 'output/recip_blast/{domain}_blastx/transcripts_{domain}_hit_ids.txt'
+    singularity:
+        tidyverse_container
+    log:
+        'output/logs/filter_transcript_ids_{domain}.log'
+    script:
+        'scripts/recip_blastx_transcript_hit_id_list.R'
+
+rule recip_blastx:
+    input:
+        transcripts = 'output/trinity_filtered_isoforms/isoforms_by_length.fasta',
+        taxid_list = 'output/taxids/species_{domain}_taxids.txt'
+    output:
+        blastx_res = 'output/recip_blast/{domain}_blastx/transcriptome_{domain}_blastx.outfmt3'
+    params:
+        blast_db = 'bin/db/blastdb/nr/nr'
+    threads:
+        50
+    singularity:
+        blast_container
+    log:
+        'output/logs/recip_blastx_{domain}.log'
+    shell:
+        'blastx '
+        '-query {input.transcripts} '
         '-db {params.blast_db} '
         '-taxidlist {input.taxid_list} '
         '-num_threads {threads} '
@@ -247,25 +278,51 @@ rule recip_blastx_viral:
         '-outfmt "6 std staxids salltitles" > {output.blastx_res} '
         '2> {log}'
 
-rule filter_unann_transcripts:
+##filter to below genus level as blast only uses species level or below
+rule filter_bacterial_taxids:
     input:
-        length_filtered_transcriptome = 'output/trinity_filtered_isoforms/isoforms_by_length.fasta',
-        unann_transcript_ids = 'output/trinotate/sorted/ids_genes_no_blastx_or_viral_annot.txt'
+        'output/taxids/bacterial_taxids.txt'
     output:
-        unann_transcripts = 'output/trinotate/sorted/unann_transcripts.fasta'
-    threads:
-        50
-    singularity:
-        bbduk_container
-    log:
-        'output/logs/filter_unann_transcripts.log'
+        'output/taxids/species_bacterial_taxids.txt'
     shell:
-        'filterbyname.sh '
-        'in={input.length_filtered_transcriptome} '
-        'include=t '
-        'names={input.unann_transcript_ids} '
-        'substring=name '
-        'out={output.unann_transcripts} '
+        'cat {input} | '
+        "bin/taxonkit-0.8.0 filter "
+        "-L genus "
+        '> {output}'
+
+##generate list of bacterial taxids
+rule list_bacterial_taxids:
+    output:
+        'output/taxids/bacterial_taxids.txt'
+    shell:
+        'bin/taxonkit-0.8.0 list '
+        '--ids 2 '
+        '--indent "" '
+        '> {output}'
+
+##############################
+## supertranscript assembly ##
+##############################
+
+##pathlib2 to get full paths - have to cd to get output where I want
+rule supertranscripts:
+    input:
+        str(pathlib2.Path(resolve_path('output/trinity/'), "Trinity.fasta"))
+    output:
+        'output/supertranscripts/trinity_genes.fasta'
+    params:
+        wd = 'output/supertranscripts'
+    log:
+        str(pathlib2.Path(resolve_path('output/logs/'), 'supertranscripts.log'))
+    singularity:
+        ST_trinity_container
+    threads:
+        20
+    shell:
+        'cd {params.wd} || exit 1 ; '
+        '/usr/local/bin/trinityrnaseq/Analysis/SuperTranscripts/Trinity_gene_splice_modeler.py '
+        '--trinity_fasta {input} '
+        '--incl_malign '
         '&> {log}'
 
 #######################################
@@ -669,6 +726,31 @@ rule kraken_venom3:
         report = 'output/kraken/reports/kraken_Mh_venom3_report.txt'
     log:
         'output/logs/kraken/kraken_Mh_venom3.log'
+    threads:
+        20
+    singularity:
+        kraken_container
+    shell:
+        'kraken2 '
+        '--threads {threads} '
+        '--db {input.db} '
+        '--paired '
+        '--output {output.out} '
+        '--report {output.report} '
+        '--use-names '
+        '{input.r1} {input.r2} '
+        '&> {log}'
+
+rule kraken_all:
+    input:
+        r1 = expand('output/bbduk_trim/{sample}_r1.fq.gz', sample=all_samples),
+        r2 = expand('output/bbduk_trim/{sample}_r2.fq.gz', sample=all_samples),
+        db = 'bin/db/kraken_std'
+    output:
+        out = 'output/kraken/kraken_all_out.txt',
+        report = 'output/kraken/reports/kraken_all_report.txt'
+    log:
+        'output/logs/kraken/kraken_all.log'
     threads:
         20
     singularity:
