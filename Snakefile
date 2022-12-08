@@ -30,21 +30,17 @@ all_samples = pep.sample_table['sample_name']
 
 bbduk_adapters = '/adapters.fa'
 
-#containers from Tom
+#containers
 bbduk_container = 'https://github.com/deardenlab/container-bbmap/releases/download/0.0.3/container-bbmap.bbmap_38.90.sif'
 trinotate_container = 'shub://TomHarrop/trinotate_pipeline:v0.0.12'
-##program-provided docker containers - latest versions as of 2021-07-09
 kraken_container = 'docker://staphb/kraken2:2.1.2-no-db'
 trinity_container = 'docker://trinityrnaseq/trinityrnaseq:2.12.0'
-ST_trinity_container = 'docker://trinityrnaseq/trinityrnaseq:2.11.0'
+ST_trinity_container = 'docker://trinityrnaseq/trinityrnaseq:2.11.0' # diff version to be the same as the ASW version for that analysis
 busco_container = 'docker://ezlabgva/busco:v5.2.1_cv1'
 tidyverse_container = 'docker://rocker/tidyverse:4.1.0'
 blast_container= 'docker://ncbi/blast:2.12.0'
 fastqc_container = 'docker://biocontainers/fastqc:v0.11.9_cv8'
-
-##old containers
-old_busco_container = 'docker://ezlabgva/busco:v4.0.2_cv1'
-tom_tidyverse_container = 'shub://TomHarrop/singularity-containers:r_3.5.0'
+bioconductor_container = 'library://sinwood/bioconductor/bioconductor_3.12:0.0.1'
 
 #########
 # RULES #
@@ -52,17 +48,16 @@ tom_tidyverse_container = 'shub://TomHarrop/singularity-containers:r_3.5.0'
 
 rule target:
     input:
-        ##kraken for contamination detection
+        ## QC
         expand('output/kraken/kraken_{sample}_out.txt',
             sample=all_samples),
         'output/kraken/kraken_Mh_venom3_out.txt',
         'output/kraken/reports/kraken_all_report.txt',
-        ##fastQC
+        'output/kraken/kraken_all_wolbachia_r1.fq',
         expand('output/fastqc/{sample}_r{n}_fastqc.zip',
             sample=all_samples, n=[1,2]),
         'output/fastqc/Mh_venom3_r2_fastqc.zip',
-        'output/fastqc_overrep/overrep_blastx.outfmt3',
-        ##assembly stats
+        ## ASSEMBLY STATS
         'output/trinity_stats/stats.txt',
         'output/trinity_stats/xn50.out.txt',
         'output/trinity_stats/bowtie2_alignment_stats.txt',
@@ -71,17 +66,17 @@ rule target:
         expand('output/busco/{filter}/short_summary.specific.hymenoptera_odb10.{filter}.txt',
                 filter=['expression', 'length']),
         'output/busco/short_summaries/busco_figure.png',
-        ##trinotate
+        ## TRINOTATE
         'output/trinotate/sorted/longest_isoform_annots.csv',
         'output/trinotate/signalp/signalp.out',
-        ##recip blast
+        ## RECIP BLAST
         expand('output/recip_blast/{domain}_nr_blastx/nr_blastx.outfmt3',
-            domain=["bacterial", "viral"]),
+            domain=["viral"]), #"bacterial", 
         "output/recip_blast/viral_nr_blastx/pid_90_blastn.outfmt6",
         ##blast MhV against transcriptome and v.v.
         'output/MhV_blast/MhV_v_transcriptome/blastn.outfmt6',
         'output/MhV_blast/transcriptome_v_MhV/blastn.outfmt6',
-        ##supertranscripts
+        ## SUPERTRANSCRIPTS
         'output/supertranscripts/trinity_genes.fasta'
 
 #####################
@@ -172,14 +167,14 @@ rule make_transcriptome_blastdb:
         '-parse_seqids '
         '2> {log}'
 
-##########################################################################
-##Reciprocal blastx searching for viral/bacterial annots for unann genes##
-##########################################################################
+############################################################################
+## Reciprocal blastx searching for viral/bacterial annots for unann genes ##
+############################################################################
 
 #blastn of genes with 90%+ ID
 rule blastn_pid90:
     input:
-        "output/recip_blast/viral_nr_blastx/pid_90.fasta"
+        "output/recip_blast/viral_nr_blastx/pid90_transcripts.fasta"
     output:
         "output/recip_blast/viral_nr_blastx/pid_90_blastn.outfmt6"
     params:
@@ -196,8 +191,24 @@ rule blastn_pid90:
         '-db {params.blast_db} '
         '-num_threads {threads} '
         '-evalue 0.5 '
-        '-outfmt "6 std staxids salltitles" > {output.blastx_res} '
+        '-outfmt "6 std staxids salltitles" > {output} '
         '2> {log}'
+
+rule recip_blastx_analysis:
+    input:
+        mh_nr_blastx_file = "output/recip_blast/viral_nr_blastx/nr_blastx.outfmt3",
+        virus_taxids_file = "data/taxids/species_virus_taxids.txt",
+        tx_lengths_file = "output/trinity_abundance/RSEM.isoforms.results",
+        fasta_file = "output/trinity_filtered_isoforms/isoforms_by_length.fasta"
+    output:
+        best_viral_hits = "output/recip_blast/viral_nr_blastx/best_viral_hits.csv",
+        pid90_fasta = "output/recip_blast/viral_nr_blastx/pid90_transcripts.fasta"
+    singularity:
+        bioconductor_container
+    log:
+        'output/logs/recip_blastx_analysis.log'
+    script:
+        'scripts/blast_analyses/recip_blastx_analysis.R'
 
 rule recip_nr_blastx:
     input:
@@ -279,11 +290,11 @@ rule recip_blastx:
         '2> {log}'
 
 ##filter to below genus level as blast only uses species level or below
-rule filter_bacterial_taxids:
+rule filter_taxids:
     input:
-        'output/taxids/bacterial_taxids.txt'
+        'output/taxids/viral_taxids.txt'
     output:
-        'output/taxids/species_bacterial_taxids.txt'
+        'output/taxids/species_viral_taxids.txt'
     shell:
         'cat {input} | '
         "bin/taxonkit-0.8.0 filter "
@@ -291,12 +302,14 @@ rule filter_bacterial_taxids:
         '> {output}'
 
 ##generate list of bacterial taxids
-rule list_bacterial_taxids:
+rule list_taxids:
     output:
-        'output/taxids/bacterial_taxids.txt'
+        'output/taxids/viral_taxids.txt'
+    params:
+
     shell:
         'bin/taxonkit-0.8.0 list '
-        '--ids 2 '
+        '--ids 10239 '
         '--indent "" '
         '> {output}'
 
@@ -307,11 +320,12 @@ rule list_bacterial_taxids:
 ##pathlib2 to get full paths - have to cd to get output where I want
 rule supertranscripts:
     input:
-        str(pathlib2.Path(resolve_path('output/trinity/'), "Trinity.fasta"))
+        'output/trinity/Trinity.fasta'
     output:
         'output/supertranscripts/trinity_genes.fasta'
     params:
-        wd = 'output/supertranscripts'
+        wd = 'output/supertranscripts',
+        trinity_fasta_path = str(pathlib2.Path(resolve_path('output/trinity/'), "Trinity.fasta"))
     log:
         str(pathlib2.Path(resolve_path('output/logs/'), 'supertranscripts.log'))
     singularity:
@@ -321,7 +335,7 @@ rule supertranscripts:
     shell:
         'cd {params.wd} || exit 1 ; '
         '/usr/local/bin/trinityrnaseq/Analysis/SuperTranscripts/Trinity_gene_splice_modeler.py '
-        '--trinity_fasta {input} '
+        '--trinity_fasta {params.trinity_fasta_path} '
         '--incl_malign '
         '&> {log}'
 
@@ -353,7 +367,7 @@ rule signalp:
     threads:
         4
     shell:
-        'signalp '
+        'signalp ' #bcc running 5.16.3
         '-f short '
         '{input} '
         '> {output.results}'
@@ -367,7 +381,8 @@ rule trinotate:
         sqldb = 'bin/trinotate_db/Trinotate.sqlite'
     output:
         'output/trinotate/trinotate/trinotate_annotation_report.txt',
-        'output/trinotate/trinotate/Trinotate.sqlite'
+        'output/trinotate/trinotate/Trinotate.sqlite',
+        'output/trinotate/TransDecoder/Trinity.fasta.transdecoder.pep'
     params:
         wd = 'output/trinotate'
     threads:
@@ -398,7 +413,7 @@ rule plot_busco:
     singularity:
         busco_container
     threads:
-        25
+        10
     shell:
         'mkdir {params.ss_dir} & '
         'cp {input.ss} {params.ss_dir}/ & '
@@ -716,6 +731,32 @@ rule bbmerge:
         'adapters={params.adapters} '
         '&> {log}'
 
+rule kraken_extract_wolbachia:
+    input:
+        kraken = 'output/kraken/kraken_all_out.txt',
+        report = 'output/kraken/reports/kraken_all_report.txt',
+        r1 = expand('output/bbduk_trim/{sample}_r1.fq.gz', sample=all_samples),
+        r2 = expand('output/bbduk_trim/{sample}_r2.fq.gz', sample=all_samples)
+    output:
+        r1 = 'output/kraken/kraken_all_wolbachia_r1.fq',
+        r2 = 'output/kraken/kraken_all_wolbachia_r2.fq'
+    params:
+        r1 = temp('output/kraken/all_reads_r1.fq.gz'),
+        r2 = temp('output/kraken/all_reads_r2.fq.gz')
+    log:
+        'output/logs/kraken_extract_wolbachia.log'
+    shell:
+        'cat {input.r1} > {params.r1} & '
+        'cat {input.r1} > {params.r2} & '
+        'scripts/extract_kraken_reads.py ' # this isn't working
+        '-k {input.kraken} '
+        '-r {input.report} '
+        '-s {params.r1} -s2 {params.r2} '
+        '--fastq-output -o {output.r1} -o2 {output.r2} '
+        '-t 953 ' # wolbachia
+        '--include-children '
+        '2> {log}'
+
 rule kraken_venom3:
     input:
         r1 = 'output/bbduk_trim/Mh_venom3_r1.fq.gz',
@@ -803,28 +844,6 @@ rule fastqc_venom3:
         fastqc_container
     shell:
         'fastqc --outdir {params.outdir} {input}'
-
-rule blast_fastqc_overrep:
-    input:
-        overrep = 'output/fastqc_overrep/mh_rnaseq_overrep_seqs.fasta'
-    output:
-        blastx_res = 'output/fastqc_overrep/overrep_blastx.outfmt3'
-    params:
-        blast_db = 'bin/db/blastdb/nr/nr'
-    threads:
-        50
-    singularity:
-        blast_container
-    log:
-        'output/logs/blast_fastqc_overrep.log'
-    shell:
-        'blastx '
-        '-query {input.overrep} '
-        '-db {params.blast_db} '
-        '-num_threads {threads} '
-        '-evalue 0.05 '
-        '-outfmt "6 std staxids salltitles" > {output.blastx_res} '
-        '2> {log}'
 
 rule fastqc:
     input:

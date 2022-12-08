@@ -24,7 +24,8 @@ signalp_file <- snakemake@input[["signalp"]]
 longest_isoform_id_list <- snakemake@input[["longest_isoform_ids"]]
 
 trinotate.report <- fread(trinotate_file, na.strings = ".")
-signalp_out <- fread(signalp_file, fill=TRUE, skip=1)
+signalp_out <- fread(signalp_file, fill=TRUE, skip=2, col.names=c(
+  "name", "Cmax", "pos", "Ymax", "pos", "Smax", "pos", "Smean", "D", "?", "Dmaxcut", "Networks-used"))
 longest_isoform_ids <- fread(longest_isoform_id_list, header=FALSE)
 
 ##split to keep annot for longest isoform:
